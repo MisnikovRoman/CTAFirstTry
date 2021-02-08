@@ -13,43 +13,72 @@ import ComposableArchitecture
 class SettingsModule: ObservableObject {
 
     // State variables
-    enum State: Equatable {
-        case isLoading
-        case settings([Setting])
+    struct State: Equatable {
+        var isLoading = true
+        var settings = [Setting]()
     }
 
     // User actions and callbacks
     enum Action {
+        // user actions
         case initial
-        case didLoadSettings([Setting])
+        case toggleSwitch(index: Int, action: SingleSettingModule.Action)
+        // callbacks actions
+        case didLoadSettings(settings: [Setting])
+        case didUpdateSettings
     }
 
     // Dependencies
     struct Environment {
         let settingsService: ISettingsService
     }
-
+    
+    // MARK: - Submodules
+    // ???
+    
     // MARK: - Variables
-    lazy var store = Store(initialState: state, reducer: reducer, environment: environment)
-
-    let state = State.isLoading
+    lazy var store = Store(initialState: state, reducer: screenReducer, environment: environment)
+    
+    let state = State()
     let environment = Environment(settingsService: SettingsServiceMock())
-    let reducer = Reducer<State, Action, Environment> { state, action, environment in
+    lazy var screenReducer = Reducer<State, Action, Environment>.combine(
+        singleSettingReducer.forEach(
+            state: \.settings,
+            action: /Action.toggleSwitch(index:action:),
+            environment: { SingleSettingModule.Environment(settingsService: $0.settingsService) }),
+        Reducer { state, action, environment in
+            switch action {
+            case .initial:
+                return environment.settingsService
+                    .getSettings()
+                    .map { .didLoadSettings(settings: $0) }
+                    .eraseToEffect()
+            case .didLoadSettings(let settings):
+                state.isLoading = false
+                state.settings = settings
+                return .none
+            case .toggleSwitch(let index, let action):
+                return environment.settingsService.update(setting: state.settings[index])
+                    .map { _ in .didUpdateSettings }
+                    .eraseToEffect()
+            case .didUpdateSettings:
+                return .none
+            }
+        }
+    )
+    .debug()
+
+    let singleSettingReducer = Reducer<Setting, SingleSettingModule.Action, SingleSettingModule.Environment> { state, action, environment in
         switch action {
-        case .initial:
-            return environment.settingsService
-                .getSettings()
-                .map { .didLoadSettings($0) }
+        case .toggleSwitch:
+            state.isEnabled.toggle()
+            return environment.settingsService.update(setting: state)
+                .map { _ in .didUpdateSetting }
                 .eraseToEffect()
-        case .didLoadSettings(let settings):
-            state = .settings(settings)
+        case .didUpdateSetting:
             return .none
         }
-    }.debug()
-
-    let reducer2 = Reducer<State, Action, Environment>.combine(
-
-    )
+    }
 }
 
 // MARK: - View
@@ -61,13 +90,14 @@ struct SettingsScreen: View {
     var body: some View {
         WithViewStore(settingStore) { viewStore in
             Group {
-                switch viewStore.state {
-                case .isLoading:
-                    ProgressView()
-                        .scaleEffect(x: 2, y: 2)
-                case .settings(let settings):
+                if viewStore.state.isLoading {
+                    ProgressView().scaleEffect(x: 2, y: 2)
+                } else {
                     List {
-                        ForEach(settings) { setting in
+//                        ForEach(viewStore.state.settings) { setting in
+//                            SettingCell(store: SingleSettingModule(setting: setting).store)
+//                        }
+                        ForEachStore(settingStore.scope(state: \.settings, action: SettingsModule.Action.toggleSwitch(index:action:))) {
                             SettingCell(store: SingleSettingModule(setting: setting).store)
                         }
                     }

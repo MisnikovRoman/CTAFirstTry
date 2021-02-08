@@ -38,4 +38,10 @@ class SettingsServiceMock: ISettingsService {
             .delay(for: 2, scheduler: DispatchQueue.main)
             .eraseToAnyPublisher()
     }
+    
+    func update(settings: [Setting]) -> AnyPublisher<Bool, Never> {
+        Just(true)
+            .delay(for: 2, scheduler: DispatchQueue.main)
+            .eraseToAnyPublisher()
+    }
 }
